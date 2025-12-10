@@ -6,5 +6,5 @@ venv/
 __pycache__/
 *.pyc
 
-# 데이터 파일
+# 데이터 파일 무시
 /data/
