@@ -1,83 +1,80 @@
-# src/state_machine.py
+# state_machine.py
+
+from enum import Enum
+import time
+
+
+class PersonState(Enum):
+    STANDING = "standing"
+    FALLING = "falling"
+    FALLEN = "fallen"
+    RECOVERED = "recovered"
+
 
 class FallStateMachine:
-    def __init__(
-        self,
-        falling_frames_threshold=5,
-        still_frames_threshold=15,
-        movement_threshold=0.02
-    ):
-        self.state = "IDLE"
+    def __init__(self):
+        self.state = PersonState.STANDING
 
-        self.falling_count = 0
-        self.still_count = 0
+        # 이벤트 플래그
+        self.fall_event_occurred = False
 
-        self.falling_frames_threshold = falling_frames_threshold
-        self.still_frames_threshold = still_frames_threshold
-        self.movement_threshold = movement_threshold
+        # 타임스탬프
+        self.fall_time = None
+        self.recover_time = None
 
-        self.alert_sent = False
+        # 로그 저장
+        self.logs = []
 
-    def reset(self):
-        self.state = "IDLE"
-        self.falling_count = 0
-        self.still_count = 0
-        self.alert_sent = False
+    def log(self, message):
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        log_msg = f"[{timestamp}] {message}"
+        self.logs.append(log_msg)
+        print(log_msg)
 
-    def update(self, model_pred, movement_score):
+    def update(self, model_state: str):
         """
-        model_pred: str ("falling", "normal")
-        movement_score: float
+        model_state:
+        - "standing"
+        - "falling"
+        - "fallen"
         """
 
-        # -------------------
-        # IDLE 상태
-        # -------------------
-        if self.state == "IDLE":
-            if model_pred == "falling":
-                self.state = "FALLING"
-                self.falling_count = 1
+        # 1️. STANDING → FALLING
+        if self.state == PersonState.STANDING:
+            if model_state == "falling":
+                self.state = PersonState.FALLING
+                self.log("상태 전이: STANDING → FALLING")
 
-        # -------------------
-        # FALLING 상태
-        # -------------------
-        elif self.state == "FALLING":
-            if model_pred == "falling":
-                self.falling_count += 1
-            else:
-                self.falling_count = 0
+        # 2️. FALLING → FALLEN (낙상 발생 지점)
+        elif self.state == PersonState.FALLING:
+            if model_state == "fallen":
+                self.state = PersonState.FALLEN
 
-            if self.falling_count >= self.falling_frames_threshold:
-                self.state = "FALLEN"
+                if not self.fall_event_occurred:
+                    self.fall_event_occurred = True
+                    self.fall_time = time.time()
+                    self.log("낙상 이벤트 발생 (FALL_DETECTED)")
+                else:
+                    self.log("이미 낙상 이벤트 발생 상태")
 
-        # -------------------
-        # FALLEN 상태
-        # -------------------
-        elif self.state == "FALLEN":
-            if movement_score < self.movement_threshold:
-                self.still_count += 1
-            else:
-                self.still_count = 0
+        # 3️. FALLEN → RECOVERED (다시 일어남)
+        elif self.state == PersonState.FALLEN:
+            if model_state == "standing":
+                self.state = PersonState.RECOVERED
+                self.recover_time = time.time()
+                self.log("낙상 이후 회복 감지 (RECOVERED_AFTER_FALL)")
 
-            # 계속 움직임이 없으면 확정
-            if self.still_count >= self.still_frames_threshold:
-                self.state = "CONFIRMED_FALL"
+        # 4️. RECOVERED → STANDING
+        elif self.state == PersonState.RECOVERED:
+            if model_state == "standing":
+                self.state = PersonState.STANDING
+                self.log("상태 전이: RECOVERED → STANDING")
 
-        # -------------------
-        # CONFIRMED_FALL 상태
-        # -------------------
-        elif self.state == "CONFIRMED_FALL":
-            # 회복 움직임이 감지되면
-            if movement_score > self.movement_threshold * 3:
-                self.reset()
-
-        return self.state
-
-    def should_alert(self):
+    def is_fall_alert_active(self):
         """
-        알림을 보내야 하는지 여부
+        알림은 낙상 발생 후 계속 유지
         """
-        if self.state == "CONFIRMED_FALL" and not self.alert_sent:
-            self.alert_sent = True
-            return True
-        return False
+        return self.fall_event_occurred
+
+    def get_logs(self):
+        return self.logs
