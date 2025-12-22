@@ -8,7 +8,7 @@ from state_machine import FallStateMachine  # 상태 머신 state_machine 추가
 # 설정 (★ 중요 튜닝값)
 # =========================
 MODEL_PATH = "../runs/detect/train/weights/best.pt"
-VIDEO_PATH = "../data/raw/FD_In_H11H21H32_0018_20201016_14.mp4"
+VIDEO_PATH = "../data/raw/FD_In_H12H21H31_0016_20201230_11.mp4"
 CONF_TH = 0.4
 
 # 넘어짐 정의
