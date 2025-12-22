@@ -2,21 +2,29 @@ from ultralytics import YOLO
 import cv2
 from collections import deque
 
-from state_machine import FallStateMachine  # 상태 머신 state_machine 추가
+from state_machine import FallStateMachine  # FSM import
 
 # =========================
-# 설정 (★ 중요 튜닝값)
+# 설정 (튜닝값)
 # =========================
 MODEL_PATH = "../runs/detect/train/weights/best.pt"
 VIDEO_PATH = "../data/raw/FD_In_H12H21H31_0016_20201230_11.mp4"
 CONF_TH = 0.4
 
-# 넘어짐 정의
+# 비율 기준
 STAND_RATIO = 1.4
 FALLING_RATIO = 1.3
 
 DISPLAY_SCALE = 0.5
-HISTORY_LEN = 15   # 누적 판단용
+HISTORY_LEN = 15
+
+# =========================
+# 색상 정의 (BGR)
+# =========================
+COLOR_IDLE = (0, 255, 0)        # 초록
+COLOR_FALLING = (0, 165, 255)   # 주황
+COLOR_FALLEN = (0, 0, 255)      # 빨강
+COLOR_RECOVERED = (255, 0, 0)   # 파랑
 
 # =========================
 # 누적 기록
@@ -81,13 +89,13 @@ while cap.isOpened():
             dy = y_history[-1] - y_history[0]
 
             # =========================
-            # State Machine 입력값 생성
+            # FSM 입력값
             # =========================
             model_pred = "falling" if ratio < FALLING_RATIO else "normal"
             movement_score = abs(dy)
 
             # =========================
-            # 상태 업데이트
+            # FSM 업데이트
             # =========================
             state = fsm.update(model_pred, movement_score)
 
@@ -95,14 +103,22 @@ while cap.isOpened():
                 print(f"[FALL CONFIRMED] frame {frame_idx}")
 
             # =========================
+            # 상태 기반 색상 결정
+            # =========================
+            if state.name == "IDLE":
+                color = COLOR_IDLE
+            elif state.name == "FALLING":
+                color = COLOR_FALLING
+            elif state.name in ("FALLEN", "CONFIRMED_FALL"):
+                color = COLOR_FALLEN
+            elif state.name == "RECOVERED":
+                color = COLOR_RECOVERED
+            else:
+                color = COLOR_IDLE
+
+            # =========================
             # 시각화
             # =========================
-            color = (0, 255, 0)
-            if state == "FALLING":
-                color = (0, 255, 255)
-            elif state in ("FALLEN", "CONFIRMED_FALL"):
-                color = (0, 0, 255)
-
             cv2.rectangle(
                 frame,
                 (int(x1), int(y1)),
@@ -110,11 +126,12 @@ while cap.isOpened():
                 color,
                 2
             )
+
             cv2.circle(frame, (int(cx), int(cy)), 5, (255, 0, 0), -1)
 
             cv2.putText(
                 frame,
-                f"{state} | ratio:{ratio:.2f} dy:{dy:.1f}",
+                f"{state.name} | ratio:{ratio:.2f} dy:{dy:.1f}",
                 (30, 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
