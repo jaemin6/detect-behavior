@@ -1,20 +1,26 @@
 from ultralytics import YOLO
 import cv2
 from enum import Enum
+from collections import deque
 
 # =========================
-# 설정
+# 설정 (★ 중요 튜닝값)
 # =========================
 MODEL_PATH = "../runs/detect/train/weights/best.pt"
-VIDEO_PATH = "../data/raw/FD_In_H11H21H31_0001_20210112_09.mp4"
+VIDEO_PATH = "../data/raw/FD_In_H11H21H32_0018_20201016_14.mp4"
 CONF_TH = 0.4
 
-FALL_RATIO_TH = 0.9
-FALLEN_RATIO_TH = 0.75
-DROP_Y_TH = 40
-FALL_CONFIRM_FRAMES = 15
+# 넘어짐 정의 확실히
+STAND_RATIO = 1.4
+FALLING_RATIO = 1.3
+FALLEN_RATIO = 1.05
+
+DY_FALLING_TH = 20
+DY_FALLEN_TH = 40
+FALL_CONFIRM_FRAMES = 10
 
 DISPLAY_SCALE = 0.5
+HISTORY_LEN = 15   # 누적 판단용
 
 # =========================
 # 상태 정의
@@ -26,7 +32,10 @@ class FallState(Enum):
 
 state = FallState.STANDING
 fall_counter = 0
-prev_center_y = None
+
+# 누적 기록
+y_history = deque(maxlen=HISTORY_LEN)
+ratio_history = deque(maxlen=HISTORY_LEN)
 
 # =========================
 # 모델 / 영상
@@ -65,39 +74,49 @@ while cap.isOpened():
             cy = (y1 + y2) / 2
             ratio = h / w
 
-            # -------------------------
-            # 상태 머신 로직
-            # -------------------------
-            if prev_center_y is not None:
-                dy = cy - prev_center_y
-            else:
-                dy = 0
+            # =========================
+            # 누적 기록
+            # =========================
+            y_history.append(cy)
+            ratio_history.append(ratio)
 
+            if len(y_history) < 5:
+                continue
+
+            dy = y_history[-1] - y_history[0]
+            ratio_drop = ratio_history[0] - ratio
+
+            # =========================
+            # 상태 머신
+            # =========================
             if state == FallState.STANDING:
-                if ratio < FALL_RATIO_TH and dy > DROP_Y_TH:
+                if ratio < STAND_RATIO:
                     state = FallState.FALLING
                     fall_counter = 1
 
             elif state == FallState.FALLING:
-                if ratio < FALLEN_RATIO_TH:
-                    fall_counter += 1
-                    if fall_counter >= FALL_CONFIRM_FRAMES:
-                        state = FallState.FALLEN
-                        print(f"[FALL CONFIRMED] frame {frame_idx}")
-                else:
+                fall_counter += 1
+
+                if (
+                    ratio < FALLEN_RATIO and
+                    dy > DY_FALLEN_TH and
+                    fall_counter >= FALL_CONFIRM_FRAMES
+                ):
+                    state = FallState.FALLEN
+                    print(f"[FALL CONFIRMED] frame {frame_idx}")
+
+                if ratio > STAND_RATIO:
                     state = FallState.STANDING
                     fall_counter = 0
 
             elif state == FallState.FALLEN:
-                if ratio > FALL_RATIO_TH:
+                if ratio > STAND_RATIO:
                     state = FallState.STANDING
                     fall_counter = 0
 
-            prev_center_y = cy
-
-            # -------------------------
+            # =========================
             # 시각화
-            # -------------------------
+            # =========================
             color = (0, 255, 0)
             if state == FallState.FALLING:
                 color = (0, 255, 255)
@@ -109,17 +128,17 @@ while cap.isOpened():
 
             cv2.putText(
                 frame,
-                f"{state.name} | ratio:{ratio:.2f}",
-                (int(x1), int(y1) - 10),
+                f"{state.name} | ratio:{ratio:.2f} dy:{dy:.1f} cnt:{fall_counter}",
+                (30, 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                0.7,
                 color,
                 2
             )
 
-    # -------------------------
-    # 화면 출력 (축소)
-    # -------------------------
+    # =========================
+    # 화면 출력
+    # =========================
     display = cv2.resize(frame, None, fx=DISPLAY_SCALE, fy=DISPLAY_SCALE)
     cv2.imshow("Fall Detection", display)
 
@@ -128,5 +147,4 @@ while cap.isOpened():
 
 cap.release()
 cv2.destroyAllWindows()
-
 print("[DONE] Processing finished")
